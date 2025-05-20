@@ -1,0 +1,23 @@
+{
+  "id": "4768992",
+  "name": "convert",
+  "font_family": "iconfont",
+  "css_prefix_text": "icon-",
+  "description": "",
+  "glyphs": [
+    {
+      "icon_id": "9318585",
+      "name": "放大-加号",
+      "font_class": "fangda-jiahao",
+      "unicode": "e633",
+      "unicode_decimal": 58931
+    },
+    {
+      "icon_id": "6664157",
+      "name": "excel",
+      "font_class": "excel",
+      "unicode": "e611",
+      "unicode_decimal": 58897
+    }
+  ]
+}

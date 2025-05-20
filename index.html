@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="./css/reset.css">
+  <link rel="stylesheet" href="./css/style.css">
+  <link rel="stylesheet" href="./css/iconfont/iconfont.css">
+  <script src="./js/config.js"></script>
+  <script src="./js/vue.js"></script>
+  <script src="./js/naive.js"></script>
+  <script src="./js/chncrs.js"></script>
+  <script src="./js/xlsx.core.min.js"></script>
+  <title>坐标转换</title>
+</head>
+
+<body>
+  <div id="app">
+        <n-config-provider :locale="zhCN" :date-locale="dateZhCN" class="all-box">
+            <div class="header">
+                <div class="title">坐标转换</div>
+            </div>
+            <div class="opt-box">
+                <div>坐标系类型：</div>
+                <div class="system-select">
+                    <p>
+                        <input type="radio" name="coordinate" checked v-model="detail.systemType" value="GCJ02">
+                        <span>02转换84</span>
+                    </p>
+                    <p>
+                        <input type="radio" name="coordinate" v-model="detail.systemType" value="WGS84">
+                        <span>84转换02</span>
+                    </p>
+                </div>
+                <div class="download-btn" @click="downloadTemplate()">
+                    <span class="iconfont icon-excel"></span>
+                    <span>模板下载</span>
+                </div>
+            </div>
+            <div  class="all-content">
+                <div class="content-box" id="content-box" v-if="detail.showUploadBtn">
+                   <input type="file"  class="input-btn" multiple accept=".xls,.xlsx" ref="inputFileUpload" @change="handleFileUpload">
+                    <p class="iconfont icon-fangda-jiahao add-icon" @click="selectData()"></p>
+                    <p class="tips">其点击选择上传EXCEL数据或，拖拽上传</p>
+                </div>
+                <div class="content-box" v-else>
+                      <p class="iconfont icon-excel"></span>
+                      <p class="name">{{ detail.showFileName }}</span>
+                </div>
+            </div>
+            <!-- <div class="process" v-if="!detail.showUploadBtn && detail.processValue != 100">
+                <n-progress type="circle" :percentage="detail.processValue" :offset-degree="0"    :indicator-text-color="'#00ff00'"/>
+            </div> -->
+	    </n-config-provider >
+    </div>
+  </div>
+
+  <script>
+    const { createApp, ref, onMounted,reactive ,getCurrentInstance} = Vue;
+	const { zhCN, dateZhCN } = naive
+    const App = {
+      setup() {
+        const { proxy }   = getCurrentInstance()
+		const detail = reactive({
+             systemType:"GCJ02",
+             showUploadBtn:true,
+             showFileName:'',
+             processValue:0
+		});
+
+        //点击选择数据
+        function handleFileUpload(e){
+            detail.showUploadBtn = !detail.showUploadBtn ;
+            detail.processValue = 0 ;
+            if (e.target && e.target.files) {
+                files = e.target.files; // 点击上传
+            } else if (e.dataTransfer && e.dataTransfer.files) {
+                files = e.dataTransfer.files; // 拖拽上传
+            };
+            let name = files[0].name ;
+            detail.showFileName = name;
+            let temp = name.substring(name.lastIndexOf('.')+1);
+            if(!['xls','xlsx'].includes(temp)){
+                window.$message.warning('请选择xls或xlsx格式的文件！');
+                return
+            };
+            var fileReader = new FileReader();
+            fileReader.readAsArrayBuffer(files[0]);
+            fileReader.onload = function (ev) {
+				try {
+					var data = ev.target.result;
+					var workbook = XLSX.read(data, { type: 'array' }),resultData = [];
+				} catch (e) {
+					console.error(e);
+					return alert('文件类型不正确!');
+				};
+                //遍历每张表读取
+				for (var sheet in workbook.Sheets) {
+					if (workbook.Sheets.hasOwnProperty(sheet)) {
+						resultData = resultData.concat(XLSX.utils.sheet_to_json(workbook.Sheets[sheet], { raw: true, header: 1 }));
+						break;// 如果只取第一张表，就把beak注释取消
+					}
+				};
+                console.log(resultData);
+                downloadConvertResult(resultData)
+            };
+        };
+
+
+        //下载转换结果
+        function downloadConvertResult(resultData){
+            const headers = resultData[0]; // 提取表头
+            const dataRows = resultData.slice(1); // 提取数据部分
+            // 找到 x 和 y 列的索引
+            const xIndex = headers.indexOf("lng");
+            const yIndex = headers.indexOf("lat");
+            // 新增的列名称
+            headers.push("convertX", "convertY");
+            // 转换数据并添加新列
+            const convertedData = dataRows.map((row,index) => {
+                const xValue = row[xIndex];
+                const yValue = row[yIndex];
+                let convertResult = [0,0];
+                if(detail.systemType == 'GCJ02'){
+                    convertResult = ispace.GPS.gcj02_wgs84(Number(xValue),Number(yValue))
+                }else{
+                    convertResult = ispace.GPS.wgs84_gcj02(Number(xValue),Number(yValue))
+                };
+                //获取当前数据处理的进度
+                detail.processValue = Math.round((index / dataRows.length * 100));
+                
+                const convertX = convertResult[0]; 
+                const convertY = convertResult[1]; 
+
+                // 将转换后的值添加到新列
+                return [...row, convertX, convertY];
+            });
+
+            // 合并表头和数据
+            const sheetData = [headers, ...convertedData];
+                // 创建工作表
+            const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+            // 动态计算列宽
+            worksheet['!cols'] = Object.values(headers).map((header, colIndex) => {
+                // 计算每列的最大宽度
+                const maxWidth = sheetData.reduce((max, row) => {
+                    const cell = row[colIndex] || ""; // 当前单元格内容
+                    return Math.max(max, cell.toString().length);
+                }, header.length); // 初始值为标题的长度
+                return { wch: maxWidth + 20 }; // 留一些空白
+            });
+            // 设置统一行高
+            worksheet['!rows'] = Array(sheetData.length).fill({ hpt: 18 }); // 所有行设置为18磅
+
+            // 创建工作簿并添加工作表
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet1");
+
+            // 导出 Excel 文件
+            XLSX.writeFile(workbook, "转换结果.xlsx"); 
+        }
+
+        //下载模板
+        function downloadTemplate(){
+            let url = "./data/转换模板EXCEL.xlsx";
+            fetch(url)
+                .then(response =>response.blob())
+                .then(blob=>{
+                    const a = document.createElement("a");
+                    const objUrl = URL.createObjectURL(blob);
+                    a.href = objUrl ;
+                    a.download = "转换模板EXCEL.xlsx";
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(objUrl)
+                })
+                .catch(error => console.error("download error:",error))
+        }
+
+        //选择数据
+        function selectData(){
+            proxy.$refs.inputFileUpload.click();
+        };
+        //添加拖拽时间
+        function addDragEvent(){
+            const dropZone = document.getElementById('content-box');
+            // Highlight drop zone when dragging files
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('dragover');
+            });
+
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('dragover');
+            });
+
+            // Handle file drop
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('dragover');
+                handleFileUpload(e);
+            });
+        };
+
+        onMounted(()=>{
+            proxy.$nextTick(()=>{
+                addDragEvent()
+            })
+        });
+
+        return {
+			detail,
+			zhCN,
+            dateZhCN,
+            handleFileUpload,
+            selectData,
+            downloadTemplate
+        }
+      }
+    };
+	const app = createApp(App);
+	app.use(naive);
+    app.mount('#app');
+  </script>
+</body>
+
+</html>
